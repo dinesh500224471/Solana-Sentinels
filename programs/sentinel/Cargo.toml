@@ -1,0 +1,13 @@
+[package]
+name = "sentinel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anchor-lang = "0.30"
+anchor-spl = "0.30"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sentinel"
+path = "src/lib.rs"
