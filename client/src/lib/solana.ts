@@ -10,32 +10,20 @@
 export const RPC_ENDPOINT = "https://api.devnet.solana.com";
 export const connection = new Connection(RPC_ENDPOINT, "confirmed");
 
-// ── Replace with your deployed program ID ──
+// ── Your deployed program ID ──
 export const SENTINEL_PROGRAM_ID = new PublicKey(
   "91owTdL18E97EG2tNwWT927ViBMusxYqrD47ChTq2oEx"
 );
 
-// ── PDA derivation ──
-export function getIdentityPDA(owner: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("identity"), owner.toBuffer()],
-    SENTINEL_PROGRAM_ID
-  );
-}
+// ── Correct Anchor discriminators (sha256("global:<name>")[0..8]) ──
+const DISCRIMINATORS: Record<string, number[]> = {
+  create_identity:      [12, 253, 209, 41, 176, 51, 195, 179],
+  update_reputation:    [194, 220, 43, 201, 54, 209, 49, 178],
+  register_payfi_event: [143, 112, 242, 94, 206, 150, 86, 169],
+};
 
-// ── Instruction discriminators (Anchor sha256 standard) ──
 function discriminator(name: string): Buffer {
-  const preimage = `global:${name}`;
-  // Simple djb2 hash as placeholder — replace with real sha256 after anchor build
-  let hash = 5381;
-  for (let i = 0; i < preimage.length; i++) {
-    hash = ((hash << 5) + hash) + preimage.charCodeAt(i);
-    hash = hash & hash;
-  }
-  const buf = Buffer.alloc(8);
-  buf.writeInt32LE(hash, 0);
-  buf.writeInt32LE(hash ^ 0xdeadbeef, 4);
-  return buf;
+  return Buffer.from(DISCRIMINATORS[name]);
 }
 
 const IdentityTypeEnum: Record<string, number> = { Human: 0, AIAgent: 1 };
@@ -46,7 +34,13 @@ const ActivityTypeEnum: Record<string, number> = {
   CommunityContribution: 3,
 };
 
-// ── create_identity ──
+export function getIdentityPDA(owner: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("identity"), owner.toBuffer()],
+    SENTINEL_PROGRAM_ID
+  );
+}
+
 export async function createIdentityTransaction(
   owner: PublicKey,
   identityType: "Human" | "AIAgent"
@@ -74,7 +68,6 @@ export async function createIdentityTransaction(
   return tx;
 }
 
-// ── update_reputation ──
 export async function updateReputationTransaction(
   owner: PublicKey,
   activityType: string,
@@ -103,7 +96,6 @@ export async function updateReputationTransaction(
   return tx;
 }
 
-// ── Check if identity exists on chain ──
 export async function identityExists(owner: PublicKey): Promise<boolean> {
   try {
     const [identityPDA] = getIdentityPDA(owner);
@@ -114,16 +106,18 @@ export async function identityExists(owner: PublicKey): Promise<boolean> {
   }
 }
 
-// ── Fetch identity data ──
 export async function fetchIdentity(owner: PublicKey) {
   try {
     const [identityPDA] = getIdentityPDA(owner);
     const info = await connection.getAccountInfo(identityPDA);
     if (!info) return null;
+    const data = info.data.slice(8);
+    const reputationScore = data.readUInt32LE(65);
+    const activityCount = data.readUInt32LE(69);
     return {
       owner: owner.toBase58(),
-      reputation_score: 100,
-      activity_count: 0,
+      reputation_score: reputationScore,
+      activity_count: activityCount,
       total_payfi_volume: 0,
       created_at: new Date(),
     };
@@ -132,7 +126,6 @@ export async function fetchIdentity(owner: PublicKey) {
   }
 }
 
-// ── Blink URL ──
 export function generateBlinkUrl(
   baseUrl: string,
   action: "verify-reputation" | "identity-card",
@@ -142,7 +135,6 @@ export function generateBlinkUrl(
   return `solana-action:${baseUrl}/api/actions/${action}?${qs}`;
 }
 
-// ── Airdrop (devnet only) ──
 export async function requestAirdrop(owner: PublicKey): Promise<string> {
   const sig = await connection.requestAirdrop(owner, LAMPORTS_PER_SOL);
   await connection.confirmTransaction(sig);
